@@ -54,6 +54,15 @@ def glicko(rating_player: list[float], rating_opponent: list[float], result: flo
 
 # All rating systems
 class RatingSystem(NamedTuple):
+    """
+
+    :var name: The identifying name of the rating system.
+    :var starting_rating: Number(s) representing the initial rating of a player.
+    :var estimating_function: A function taking two ratings which returns a
+        number between 0 and 1 corresponding to the probability of the first rating winning.
+    :var update_function: A function taking the player's and opponent's ratings
+        and match results and returns the player's updated rating.
+    """
     name: str
     starting_rating: float | list[float]
     estimating_function: Callable[[float | list[float], float | list[float]],

@@ -43,12 +43,10 @@ class Simulation:
         self.matches = []
         self.untreated_matches = []
         self.match_simulation_function = None
+        self.match_generation_function = generate_random_matches
 
     def generate_matches(self, n: int):
-        for _ in range(n):
-            player1, player2 = random.choices(self.players, k=2)
-            self.untreated_matches.append(
-                self.match_simulation_function(player1, player2))
+        self.match_generation_function(self, n)
 
     def treat_matches(self):
         for match in self.untreated_matches:
@@ -58,6 +56,25 @@ class Simulation:
                 match.player2.ratings[system.name] = new2
             self.matches.append(match)
         self.untreated_matches = []
+
+
+def generate_random_matches(self: Simulation, n: int):
+    for _ in range(n):
+        player1, player2 = random.choices(self.players, k=2)
+        self.untreated_matches.append(
+            self.match_simulation_function(player1, player2))
+
+
+def generate_stairs_matches(self: Simulation, n: int):
+    self.players.sort(key=lambda x: x.ratings["glicko"][0])
+    count = 0
+    while count < n:
+        for i in range(len(self.players) // 2):
+            self.untreated_matches.append(
+                self.match_simulation_function(self.players[i * 2], self.players[i * 2 + 1]))
+            count += 1
+            if count >= n:
+                break
 
 
 def generate_flat_skill():
@@ -85,13 +102,21 @@ def bradley_terry_simulate_match(player1: Player, player2: Player):
     return Match(player1, player2, win)
 
 
-def immediate_total_match_generation(simulation: Simulation, n_matches: int):
+def immediate_total_random_match_generation(simulation: Simulation, n_matches: int):
+    simulation.match_generation_function = generate_random_matches
     simulation.generate_matches(n_matches)
     simulation.treat_matches()
 
 
+def multiple_stairs_match_generation(simulation: Simulation, n_matches: tuple[int, int]):
+    simulation.match_generation_function = generate_stairs_matches
+    for _ in range(n_matches[0]):
+        simulation.generate_matches(n_matches[1])
+        simulation.treat_matches()
+
+
 def run_simulation(n_players: int, skill_generation_function,
-                   n_matches: int, match_generation_function,
+                   n_matches: float | tuple[float, ...], match_generation_function,
                    matchmaking_policy):
     simulation = Simulation()
     simulation.players = generate_players(n_players, skill_generation_function)
@@ -121,8 +146,8 @@ def run_numerous_simulations(k: int):
     overall_error = None
     for _ in range(k):
         error = run_simulation(1000, generate_flat_skill,
-                               10000, bradley_terry_simulate_match,
-                               immediate_total_match_generation)
+                               (20, 500), bradley_terry_simulate_match,
+                               multiple_stairs_match_generation)
         if overall_error is None:
             overall_error = error
         else:
