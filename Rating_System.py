@@ -52,6 +52,19 @@ def glicko(rating_player: list[float], rating_opponent: list[float], result: flo
     return new_rating, new_rd
 
 
+# Glicko-2
+glicko_2_tau = 0.8
+
+
+def glicko_2_variance(rd: float):
+    pass
+
+
+def glicko_2(rating_player: list[float], rating_opponent: list[float], result: float):
+    mu = (rating_player[0] - 1500) * glicko_q
+    phi = rating_player[1] * glicko_q
+
+
 # All rating systems
 class RatingSystem(NamedTuple):
     """
@@ -70,6 +83,6 @@ class RatingSystem(NamedTuple):
     update_function: Callable
 
 
-elo_system = RatingSystem("elo", 1500, elo_expected, elo)
-glicko_system = RatingSystem("glicko", [1500, 350], glicko_expected, glicko)
+elo_system = RatingSystem("elo", 1500.0, elo_expected, elo)
+glicko_system = RatingSystem("glicko", [1500.0, 350.0], glicko_expected, glicko)
 all_systems = [elo_system, glicko_system]
