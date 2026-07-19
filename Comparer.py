@@ -212,6 +212,10 @@ def generate_flat_skill():
     return 10 ** ((random.random() - 0.5) * 30)
 
 
+def generate_gaussian_skill():
+    return 10 ** ((random.gauss(1500.0, 600.0) - 1500) / 500)
+
+
 # Player generator
 def generate_players(n: int, skill_generator):
     """Generate a list of players with skill from to the
