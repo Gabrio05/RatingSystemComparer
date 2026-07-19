@@ -1,10 +1,19 @@
 import copy
 import random
+from typing import List, Any
+
 import Rating_System
 all_systems = Rating_System.all_systems
 
 
 class Player:
+    """
+
+    :var name: Name (or index) to refer back to the player.
+    :var skill: The true skill of the player and how matches are resolved.
+    :var ratings: The calculated ratings of the player.
+    :var matches: The matches this player has played.
+    """
     def __init__(self, name: str | int, skill: float | list[float] = 0):
         self.name = name
         self.skill = skill  # True skill of the player
@@ -21,20 +30,35 @@ class Player:
 
 
 class Match:
+    """A class representing a single match between two players.
+
+    :var player1: Player class instance.
+    :var player2: Second player class instance.
+    :var result: 1, 0.5, or 0, 0 is player2 win
+    :var scoreline: Use for more specific game scores. Currently unused.
+    :var time: The time of the match for the matchmaking policy. 0 by default.
+    :var player1_rating: The rating of player1 after the match.
+    :var player2_rating: The rating of player2 after the match.
+    """
     def __init__(self, player1: Player, player2: Player, result: float,
                  scoreline: tuple[float, float] | None = None,
                  time: float = 0):
         self.player1 = player1
         self.player2 = player2
-        self.result = result  # 1, 0.5, or 0, 0 is player2 win
+        self.result = result
         self.scoreline = scoreline
         self.time = time
+        self.player1_rating = {}
+        self.player2_rating = {}
 
     def opposite_result(self):
         return 1 - self.result
 
 
-def get_new_ratings(match: Match, system: Rating_System):
+def get_new_ratings(match: Match, system: Rating_System.RatingSystem):
+    """Use the system's update function to update the rating of both
+    players in the match according to the match results.
+    """
     rating1 = match.player1.ratings[system.name]
     rating2 = match.player2.ratings[system.name]
     new_rating1 = system.update_function(rating1, rating2, match.result)
@@ -43,11 +67,35 @@ def get_new_ratings(match: Match, system: Rating_System):
 
 
 class Simulation:
+    """Generate matches between given players and calculate ratings
+    for those matches, recursively if needed.
+
+    :var players: The Player instances for the simulation.
+    :var matches: The Match instances which have already had their
+        ratings calculated.
+    :var untreated_matches: The Match instances which have not had
+        their ratings calculated.
+    :var match_simulation_function: A Callable to generate a new Match
+        instance from two Player instances.
+    :var match_generation_function: A Callable to generate matches
+        (calling match_simulation_function repeatedly) by repeatedly
+        picking two Player instances.
+    :var rating_system_sorting_name: The rating to sort by if the
+        matches generated are affected by the player ratings (i.e., the
+        matchmaking policy depends on the specific rating system)
+    :var should_calculate_all_rating_systems: Set to "False" to reduce
+        computation if the matchmaking policy depends on the specific
+        rating system.
+    """
+    players: list[Player]
+    matches: list[Match]
+    untreated_matches: list[Match]
+
     def __init__(self):
         self.players = []
         self.matches = []
         self.untreated_matches = []
-        self.match_simulation_function = None
+        self.match_simulation_function = bradley_terry_simulate_match
         self.match_generation_function = generate_random_matches
         self.rating_system_sorting_name = all_systems[0].name
         self.should_calculate_all_rating_systems = True
@@ -56,20 +104,27 @@ class Simulation:
         self.match_generation_function(self, n)
 
     def treat_matches(self):
+        """Calculate the rating of players for all untreated matches."""
         for match in self.untreated_matches:
             for system in all_systems:
                 if self.should_calculate_all_rating_systems or system.name == self.rating_system_sorting_name:
                     new1, new2 = get_new_ratings(match, system)
                     match.player1.ratings[system.name] = new1
                     match.player2.ratings[system.name] = new2
+                    match.player1_rating = new1
+                    match.player2_rating = new2
             self.matches.append(match)
+            match.player1.matches.append(match)
+            match.player2.matches.append(match)
         self.untreated_matches = []
 
     def sort_players_by_rating(self):
         self.players.sort(key=lambda x: x.get_rating(self.rating_system_sorting_name), reverse=True)
 
 
+# Match Generation Functions used for the Matchmaking Policy
 def generate_random_matches(self: Simulation, n: int):
+    """Generate n fully random matches."""
     for _ in range(n):
         player1, player2 = random.choices(self.players, k=2)
         self.untreated_matches.append(
@@ -77,6 +132,9 @@ def generate_random_matches(self: Simulation, n: int):
 
 
 def generate_stairs_matches(self: Simulation, n: int):
+    """Sort all players by rating and pair each player with the player
+    above (if even) or below (if odd).
+    """
     # Ratings must be a float only or have their first float in the list be their rating
     self.sort_players_by_rating()
     count = 0
@@ -90,8 +148,10 @@ def generate_stairs_matches(self: Simulation, n: int):
                 break
 
 
-def generate_random_batch_matches(self: Simulation, n: int):
-    players_to_consider = 4
+def generate_random_batch_matches(self: Simulation, n: int, players_to_consider=50):
+    """Sort all players and, starting from the top, pair each player
+    with a random player in the next 'players_to_consider' players.
+    """
     self.sort_players_by_rating()
     count = 0
     while count < n:
@@ -110,8 +170,12 @@ def generate_random_batch_matches(self: Simulation, n: int):
                 break
 
 
-def generate_random_skill_adjusted_matches(self: Simulation, n: int):
-    players_to_consider = 10
+def generate_random_skill_adjusted_matches(self: Simulation, n: int, players_to_consider=50):
+    """Sort all players and, starting from the top, pair each player
+    with a random player in the next 'players_to_consider' players,
+    weighing each player by the difference in rating with the current
+    top player.
+    """
     self.sort_players_by_rating()
     count = 0
     while count < n:
@@ -124,11 +188,11 @@ def generate_random_skill_adjusted_matches(self: Simulation, n: int):
             biggest_difference = untreated_players[real_players_to_consider].get_rating(self.rating_system_sorting_name)
             inverse_skill_difference = 0
             for j in range(real_players_to_consider):
-                inverse_skill_difference += (biggest_difference
-                                             - untreated_players[j + 1].get_rating(self.rating_system_sorting_name))
+                inverse_skill_difference += (untreated_players[j + 1].get_rating(self.rating_system_sorting_name)
+                                             - biggest_difference)
             value = random.random() * inverse_skill_difference
             for j in range(real_players_to_consider):
-                value -= biggest_difference - untreated_players[j + 1].get_rating(self.rating_system_sorting_name)
+                value -= untreated_players[j + 1].get_rating(self.rating_system_sorting_name) - biggest_difference
                 if value < 0:
                     second = j + 1
                     break
@@ -142,12 +206,17 @@ def generate_random_skill_adjusted_matches(self: Simulation, n: int):
                 break
 
 
+# Skill random number generators
 def generate_flat_skill():
     """Generate a logarithmic random number between 1e-15 and 1e15."""
     return 10 ** ((random.random() - 0.5) * 30)
 
 
+# Player generator
 def generate_players(n: int, skill_generator):
+    """Generate a list of players with skill from to the
+    skill_generator Callable.
+    """
     players = []
     starting_ratings = {}
     for system in all_systems:
@@ -159,6 +228,7 @@ def generate_players(n: int, skill_generator):
     return players
 
 
+# Match resolver
 def bradley_terry_simulate_match(player1: Player, player2: Player):
     if random.random() < player1.skill / (player1.skill + player2.skill):
         win = 1
@@ -169,11 +239,15 @@ def bradley_terry_simulate_match(player1: Player, player2: Player):
 
 # Matchmaking Policies
 def immediate_total_random_match_generation(simulation: Simulation, n_matches: int):
+    """Generate n_matches matches and calculate all players' ratings."""
     simulation.generate_matches(n_matches)
     simulation.treat_matches()
 
 
 def batched_match_generation(simulation: Simulation, n_matches: tuple[int, int]):
+    """Generate matches in rounds, calculating the players' ratings
+    after each round.
+    """
     for _ in range(n_matches[0]):
         simulation.generate_matches(n_matches[1])
         simulation.treat_matches()
@@ -181,6 +255,9 @@ def batched_match_generation(simulation: Simulation, n_matches: tuple[int, int])
 
 # Loss metrics
 def calculate_final_rating_errors(simulation: Simulation, system: Rating_System):
+    """The mean square error of the ratings to the true skill of the
+    player using each rating system's expected win rate function.
+    """
     bradley_error = 0
     for player in simulation.players:
         for opponent in simulation.players:
@@ -196,12 +273,16 @@ def calculate_final_rating_errors(simulation: Simulation, system: Rating_System)
 
 
 def calculate_all_match_skill_disparities(simulation: Simulation):
+    """The mean square error of the imbalance of each generated match.
+    A more imbalanced match is worse than one closer to 0.5 probability.
+    """
     mean_square_error = 0
     for match in simulation.matches:
         mean_square_error += ((0.5 - match.player1.skill / (match.player1.skill + match.player2.skill)) * 2)**2
     return mean_square_error / len(simulation.matches)
 
 
+# Simulation Runner
 def run_simulation(n_players: int, skill_generation_function,
                    n_matches: float | tuple[float, ...], match_simulation_function, match_generation_function,
                    matchmaking_policy, should_separate_simulations_by_system: bool = False):
@@ -225,14 +306,18 @@ def run_simulation(n_players: int, skill_generation_function,
         bradley_error = calculate_final_rating_errors(simulation, system)
         print(f"{bradley_error} is the error for {system.name}.")
         return_error[system.name] = bradley_error
+        # Other prints
+        # print(f"One of the skills of a random player is {simulation.players[0].skill}.")
+        # for match in simulation.players[0].matches:
+        #     print(match.player1_rating, match.player2_rating)
     return return_error
 
 
 def run_numerous_simulations(k: int):
     overall_error = None
     for _ in range(k):
-        error = run_simulation(1000, generate_flat_skill,
-                               (10, 1000), bradley_terry_simulate_match, generate_random_skill_adjusted_matches,
+        error = run_simulation(1000, generate_gaussian_skill,
+                               (10, 500), bradley_terry_simulate_match, generate_random_skill_adjusted_matches,
                                batched_match_generation, True)
         if overall_error is None:
             overall_error = error
@@ -245,7 +330,3 @@ def run_numerous_simulations(k: int):
 
 
 run_numerous_simulations(15)
-
-# Different player generation models: Gaussian, Hill (flat and tapers off)
-# Different match generation models (matchmaking policy)
-# Different probability models: Bradley-Terry
