@@ -1,7 +1,6 @@
 import copy
 import random
-from typing import List, Any
-
+import ContinuousMatchmaking
 import Rating_System
 all_systems = Rating_System.all_systems
 
@@ -19,6 +18,7 @@ class Player:
         self.skill = skill  # True skill of the player
         self.ratings = {}
         self.matches = []
+        self.is_currently_in_queue = False
 
     def __str__(self):
         return (f"{self.name} with skill {self.skill} "
@@ -48,6 +48,8 @@ class Match:
         self.result = result
         self.scoreline = scoreline
         self.time = time
+        self.wait_time_player1 = time
+        self.wait_time_player2 = time
         self.player1_rating = {}
         self.player2_rating = {}
 
@@ -135,7 +137,6 @@ def generate_stairs_matches(self: Simulation, n: int):
     """Sort all players by rating and pair each player with the player
     above (if even) or below (if odd).
     """
-    # Ratings must be a float only or have their first float in the list be their rating
     self.sort_players_by_rating()
     count = 0
     while count < n:
@@ -148,7 +149,7 @@ def generate_stairs_matches(self: Simulation, n: int):
                 break
 
 
-def generate_random_batch_matches(self: Simulation, n: int, players_to_consider=50):
+def generate_random_batch_matches(self: Simulation, n: int, players_to_consider=3):
     """Sort all players and, starting from the top, pair each player
     with a random player in the next 'players_to_consider' players.
     """
@@ -170,7 +171,7 @@ def generate_random_batch_matches(self: Simulation, n: int, players_to_consider=
                 break
 
 
-def generate_random_skill_adjusted_matches(self: Simulation, n: int, players_to_consider=50):
+def generate_random_skill_adjusted_matches(self: Simulation, n: int, players_to_consider=3):
     """Sort all players and, starting from the top, pair each player
     with a random player in the next 'players_to_consider' players,
     weighing each player by the difference in rating with the current
@@ -206,6 +207,85 @@ def generate_random_skill_adjusted_matches(self: Simulation, n: int, players_to_
                 break
 
 
+def generate_stairs_matchmaking_matches(self: Simulation, n: int):
+    """Select a certain number of players to get n matches, sort the
+    players, and pair them with their neighbour.
+    """
+    self.sort_players_by_rating()
+    selection_probability = n * 2 / len(self.players)
+    selected_players = []
+    for player in self.players:
+        if random.random() < selection_probability:
+            selected_players.append(player)
+    if len(selected_players) % 2 != 0:
+        selected_players.remove(random.choices(selected_players)[0])
+    for i in range(len(selected_players) // 2):
+        self.untreated_matches.append(
+            self.match_simulation_function(selected_players[i * 2], selected_players[i * 2 + 1])
+        )
+
+
+def generate_random_batch_matchmaking_matches(self: Simulation, n: int, players_to_consider=50):
+    """Select a certain number of players to get n matches, sort the
+    players, and pair them, starting at the top with a random player up
+    to 'players_to_consider' players under them.
+    """
+    players_to_consider = min(players_to_consider, n // 2)  # Capping at half the players, else it is the same as above
+    self.sort_players_by_rating()
+    selection_probability = n * 2 / len(self.players)
+    selected_players = []
+    for player in self.players:
+        if random.random() < selection_probability:
+            selected_players.append(player)
+    if len(selected_players) % 2 != 0:
+        selected_players.remove(random.choices(selected_players)[0])
+    for i in range(len(selected_players) // 2):
+        first = 0
+        second = int(random.random() * (players_to_consider if len(selected_players) - 1 > players_to_consider
+                                        else len(selected_players) - 1)) + 1
+        self.untreated_matches.append(
+            self.match_simulation_function(selected_players[first], selected_players[second])
+        )
+        selected_players.pop(second)
+        selected_players.pop(first)
+
+
+def generate_random_skill_adjusted_matchmaking_matches(self: Simulation, n: int, players_to_consider=50):
+    """Select a certain number of players to get n matches, sort the
+    players, and pair them with their neighbour.
+    """
+    players_to_consider = min(players_to_consider, n // 2)  # Capping at half the players, else it is the same as above
+    self.sort_players_by_rating()
+    selection_probability = n * 2 / len(self.players)
+    selected_players = []
+    for player in self.players:
+        if random.random() < selection_probability:
+            selected_players.append(player)
+    if len(selected_players) % 2 != 0:
+        selected_players.remove(random.choices(selected_players)[0])
+    for i in range(len(selected_players) // 2):
+        first = 0
+        second = 1
+        real_players_to_consider = (players_to_consider if len(selected_players) - 1 > players_to_consider
+                                    else len(selected_players) - 1)
+        biggest_difference = selected_players[real_players_to_consider].get_rating(self.rating_system_sorting_name)
+        inverse_skill_difference = 0
+        for j in range(real_players_to_consider):
+            inverse_skill_difference += (selected_players[j + 1].get_rating(self.rating_system_sorting_name)
+                                         - biggest_difference)
+        value = random.random() * inverse_skill_difference
+        for j in range(real_players_to_consider):
+            value -= selected_players[j + 1].get_rating(self.rating_system_sorting_name) - biggest_difference
+            if value < 0:
+                second = j + 1
+                break
+        self.untreated_matches.append(
+            self.match_simulation_function(selected_players[first], selected_players[second])
+        )
+        selected_players.pop(second)
+        selected_players.pop(first)
+
+
 # Skill random number generators
 def generate_flat_skill():
     """Generate a logarithmic random number between 1e-15 and 1e15."""
@@ -213,7 +293,8 @@ def generate_flat_skill():
 
 
 def generate_gaussian_skill():
-    return 10 ** ((random.gauss(1500.0, 600.0) - 1500) / 500)
+    return 10 ** random.gauss(0.0, 1.2)
+    # return 10 ** random.gauss(0, 6.0)
 
 
 # Player generator
@@ -234,6 +315,7 @@ def generate_players(n: int, skill_generator):
 
 # Match resolver
 def bradley_terry_simulate_match(player1: Player, player2: Player):
+    # Expected is hardcoded in "calculate final rating errors" for Bradley-Terry
     if random.random() < player1.skill / (player1.skill + player2.skill):
         win = 1
     else:
@@ -257,6 +339,18 @@ def batched_match_generation(simulation: Simulation, n_matches: tuple[int, int])
         simulation.treat_matches()
 
 
+def continuous_match_generation(simulation: Simulation, n_rounds: int):
+    """Generate matches continuously, simulating players queuing for a
+    match in-game.
+    """
+    queue = ContinuousMatchmaking.Queue()
+    queue.rating_system_sorting_name = simulation.rating_system_sorting_name
+    for i in range(n_rounds):
+        queue.manage_queue(simulation.players)
+        simulation.untreated_matches = queue.matchmaker(simulation.match_simulation_function)
+        simulation.treat_matches()
+
+
 # Loss metrics
 def calculate_final_rating_errors(simulation: Simulation, system: Rating_System):
     """The mean square error of the ratings to the true skill of the
@@ -269,7 +363,7 @@ def calculate_final_rating_errors(simulation: Simulation, system: Rating_System)
                 expected = system.estimating_function(
                     player.ratings[system.name],
                     opponent.ratings[system.name])
-                # TODO True expected is hardcoded
+                # Warning: True expected is hardcoded for Bradley-Terry
                 true_expected = player.skill / (
                         player.skill + opponent.skill)
                 bradley_error += (true_expected - expected) ** 2
@@ -284,6 +378,26 @@ def calculate_all_match_skill_disparities(simulation: Simulation):
     for match in simulation.matches:
         mean_square_error += ((0.5 - match.player1.skill / (match.player1.skill + match.player2.skill)) * 2)**2
     return mean_square_error / len(simulation.matches)
+
+
+def calculate_wait_time(simulation: Simulation):
+    total_long_waits = 0
+    total_players_long = 0
+    for player in simulation.players:
+        long_waits = 0
+        for match in player.matches:
+            if (match.player1 == player and match.wait_time_player1 > 50
+                    or match.player2 == player and match.wait_time_player2 > 50):
+                long_waits += 1
+        total_long_waits += long_waits
+        if long_waits > 5:
+            total_players_long += 1
+            # print(f"{player} with {long_waits} matches over 50 rounds waiting.")
+    print(f"Number of long waits over 50: {total_long_waits} with {total_players_long} player(s) having long waits.")
+    error = 0
+    for match in simulation.matches:
+        error += match.wait_time_player1 ** 2 + match.wait_time_player2 ** 2
+    return error / len(simulation.matches)
 
 
 # Simulation Runner
@@ -304,33 +418,42 @@ def run_simulation(n_players: int, skill_generation_function,
     else:
         matchmaking_policy(simulation, n_matches)
     return_error = {}
+    wait_error = {}
     for system in all_systems:
         if should_separate_simulations_by_system:
             simulation = simulations[system.name]
-        bradley_error = calculate_final_rating_errors(simulation, system)
+        bradley_error = calculate_all_match_skill_disparities(simulation)
         print(f"{bradley_error} is the error for {system.name}.")
+        wait_time = calculate_wait_time(simulation)
+        print(f"Wait time error of {wait_time} for {len(simulation.matches)} matches.")
         return_error[system.name] = bradley_error
+        wait_error[system.name] = wait_time
         # Other prints
         # print(f"One of the skills of a random player is {simulation.players[0].skill}.")
         # for match in simulation.players[0].matches:
         #     print(match.player1_rating, match.player2_rating)
-    return return_error
+    return return_error, wait_error
 
 
 def run_numerous_simulations(k: int):
     overall_error = None
+    wait_error = None
     for _ in range(k):
-        error = run_simulation(1000, generate_gaussian_skill,
-                               (10, 500), bradley_terry_simulate_match, generate_random_skill_adjusted_matches,
-                               batched_match_generation, True)
+        error, w_error = run_simulation(1000, generate_gaussian_skill,
+                                        100000, bradley_terry_simulate_match, None,
+                                        continuous_match_generation, True)
         if overall_error is None:
             overall_error = error
+        if wait_error is None:
+            wait_error = w_error
         else:
             for r_system in all_systems:
                 overall_error[r_system.name] += error[r_system.name]
+            for r_system in all_systems:
+                wait_error[r_system.name] += w_error[r_system.name]
     for r_system in all_systems:
         print(f"The average error of {r_system.name} was "
-              f"{overall_error[r_system.name] / k}.")
+              f"{overall_error[r_system.name] / k} with wait time of {wait_error[r_system.name] / k}.")
 
 
 run_numerous_simulations(15)
